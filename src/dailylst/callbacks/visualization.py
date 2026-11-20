@@ -208,7 +208,9 @@ class LstFigures(pl.Callback):
             inner = crop(torch.from_numpy(clear), loss.margin).numpy()
             if hidden and inner.mean() >= self.min_clear:
                 err = crop(torch.from_numpy(seen_k[d] - target), loss.margin).numpy()[inner]
-                sig = crop(torch.from_numpy(sigma_k[d]), loss.margin).numpy()[inner]
+                st_qa = batch.target_unc[0, q, 0].cpu().numpy() if loss.use_target_unc else 0.0
+                total = np.sqrt(sigma_k[d] ** 2 + st_qa ** 2)                    # model + st_qa, as in the loss
+                sig = crop(torch.from_numpy(total), loss.margin).numpy()[inner]
                 hidden_errors.append((season_of(shift(start, d)), err, sig))
 
         # Modis of the middle cells, sentinel rgb dates, water input

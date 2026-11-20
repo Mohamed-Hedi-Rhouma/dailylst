@@ -14,6 +14,7 @@ loss:
     landsat_resolution_m: 90.0            # landsat thermal seen at 90 m with mtf 0.2 (tamrf)
     landsat_mtf: 0.2
     landsat_min_clear: 0.5                # tamrf
+    use_target_unc: true                  # landsat st_qa added to the variance of the landsat nll
     modis_sigma_m: 1000.0                 # measured by analyze_modis_footprint.py
     triplet_days: 20.0                    # tamrf
     triplet_margin: 0.1                   # tamrf

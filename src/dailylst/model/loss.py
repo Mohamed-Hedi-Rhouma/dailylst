@@ -78,6 +78,7 @@ class LstLoss(nn.Module):
         landsat_resolution_m: float = 90.0,      # landsat thermal band seen at 90 m with mtf 0.2 (tamrf)
         landsat_mtf: float = 0.2,
         landsat_min_clear: float = 0.5,          # a landsat day counts above this clear share (tamrf)
+        use_target_unc: bool = True,             # add landsat st_qa to the variance of the landsat nll
         modis_sigma_m: float = 1000.0,           # measured by analyze_modis_footprint.py
         triplet_days: float = 20.0,              # closest clear day must be nearer than this (tamrf)
         triplet_margin: float = 0.1,             # tamrf
@@ -98,6 +99,7 @@ class LstLoss(nn.Module):
         self.landsat_sigma = mtf_sigma_px(landsat_resolution_m, landsat_mtf)            # 1.7 px
         self.landsat_half = math.ceil(landsat_resolution_m / PIXEL_M)                   # 3 px (tamrf)
         self.landsat_min_clear = landsat_min_clear
+        self.use_target_unc = use_target_unc
         self.modis_sigma = modis_sigma_m / PIXEL_M                                      # 33 px
         self.triplet_days, self.triplet_margin = triplet_days, triplet_margin
         self.cca_max_masked, self.cca_min_samples = cca_max_masked, cca_min_samples
@@ -110,11 +112,17 @@ class LstLoss(nn.Module):
     # -------------------------------------------------------------------------
     # Landsat: gaussian nll on clear pixels, after the landsat blur
     # -------------------------------------------------------------------------
+    def target_variance(self, batch: Batch, q: int) -> torch.Tensor:
+        """b q S S: landsat st_qa squared in normalized units (0 if not used)."""
+        if not self.use_target_unc:
+            return torch.zeros_like(batch.target_unc[:, :q, 0])
+        return (batch.target_unc[:, :q, 0] / self.landsat_scale) ** 2
+
     def landsat_loss(self, pred: Prediction, batch: Batch, q: int) -> torch.Tensor:
-        """Every landsat day, hidden or not, clear pixels inside the margin."""
+        """Every landsat day, hidden or not, clear pixels inside the margin; variance = model + st_qa."""
         kernel = gaussian_1d(self.landsat_sigma, self.landsat_half, pred.lst.device)
         mean = crop(blur(pred.lst, kernel), self.margin)
-        variance = crop(blur(pred.variance, kernel), self.margin)
+        variance = crop(blur(pred.variance, kernel) + self.target_variance(batch, q), self.margin)
         target = crop(batch.target_landsat[:, :q, 0], self.margin)
         clear = crop(~batch.target_missing[:, :q] & ~batch.target_cloud[:, :q], self.margin)
         days = batch.has_landsat[:, :q] & batch.query_valid[:, :q]

@@ -142,8 +142,9 @@ class LstModule(pl.LightningModule):
         """Hidden landsat days, clear pixels: bias, mae and rmse in K, and share of errors within 1 sigma."""
         q = pred.lst.shape[1]
         kernel = gaussian_1d(self.loss.landsat_sigma, self.loss.landsat_half, pred.lst.device)   # as in the loss
-        mean = crop(blur(pred.lst, kernel), self.loss.margin)
-        sigma = crop(blur(pred.variance, kernel), self.loss.margin).sqrt()
+        mean = crop(blur(pred.lst.float(), kernel), self.loss.margin)
+        variance = blur(pred.variance.float(), kernel) + self.loss.target_variance(batch, q)   # model + st_qa
+        sigma = crop(variance, self.loss.margin).sqrt()
         target = crop(batch.target_landsat[:, :q, 0], self.loss.margin)
         clear = crop(~batch.target_missing[:, :q] & ~batch.target_cloud[:, :q], self.loss.margin)
         days = batch.landsat_hidden[:, :q] & batch.has_landsat[:, :q] & batch.query_valid[:, :q]
@@ -156,7 +157,7 @@ class LstModule(pl.LightningModule):
             "bias_k": error.mean(),
             "mae_k": error.abs().mean(),
             "rmse_k": error.square().mean().sqrt(),
-            "within_1_sigma": (error.abs() <= sigma[mask] * scale).float().mean(),   # 0.68 if sigma is right
+            "within_1_sigma": (error.abs() <= sigma[mask] * scale).float().mean(),   # 0.68 if model + st_qa is right
         }
 
     def evaluate(self, batch: Batch, stage: str) -> None:
