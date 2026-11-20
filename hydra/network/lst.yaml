@@ -15,3 +15,5 @@ network:
     feedforward: 256                      # tamrf
     head_blocks: 2
     chunk: 8192                           # pixels per attention call
+    checkpointing: true                   # keep only block inputs, recompute in the backward (less memory, ~30% slower)
+    day_chunk: 16                         # days asked per query + head call

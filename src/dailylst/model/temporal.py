@@ -3,6 +3,7 @@
 
 import torch                                     # tensors
 from torch import nn                             # layers
+from torch.utils.checkpoint import checkpoint    # recompute in the backward instead of keeping
 
 from dailylst.model.blocks import MLP
 
@@ -21,19 +22,31 @@ def to_maps(x: torch.Tensor, b: int, h: int, w: int) -> torch.Tensor:
 class TimeTransformer(nn.Module):
     """Self attention over the dates of each pixel, padding dates ignored (tamrf: 3 layers, 4 heads, 256 feedforward)."""
 
-    def __init__(self, dim: int = 72, heads: int = 4, layers: int = 3, feedforward: int = 256, chunk: int = 8192):
-        """chunk: pixels done at once, keeps the gpu kernels within their limits."""
+    def __init__(self, dim: int = 72, heads: int = 4, layers: int = 3, feedforward: int = 256, chunk: int = 8192,
+                 checkpointing: bool = True):
+        """chunk: pixels done at once; checkpointing: keep only each layer input, recompute it in the backward."""
         super().__init__()
         self.chunk = chunk
-        layer = nn.TransformerEncoderLayer(dim, heads, feedforward, dropout=0.0, batch_first=True, norm_first=True)
-        self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
+        self.checkpointing = checkpointing
+        self.layers = nn.ModuleList(
+            nn.TransformerEncoderLayer(dim, heads, feedforward, dropout=0.0, batch_first=True, norm_first=True)
+            for _ in range(layers))
+
+    def _run(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Every layer on one chunk of pixels."""
+        for layer in self.layers:
+            if self.checkpointing and torch.is_grad_enabled():
+                x = checkpoint(layer, x, src_key_padding_mask=mask, use_reentrant=False)
+            else:
+                x = layer(x, src_key_padding_mask=mask)
+        return x
 
     def forward(self, tokens: torch.Tensor, padding: torch.Tensor) -> torch.Tensor:
         """tokens b n d h w, padding b n (True = no date) -> b n d h w."""
         b, _, _, h, w = tokens.shape
         x = to_pixels(tokens)
         mask = padding.repeat_interleave(h * w, dim=0)                              # (b h w) n
-        out = torch.cat([self.encoder(x[k:k + self.chunk], src_key_padding_mask=mask[k:k + self.chunk])
+        out = torch.cat([self._run(x[k:k + self.chunk], mask[k:k + self.chunk])
                          for k in range(0, x.shape[0], self.chunk)])
         return to_maps(out, b, h, w)
 
