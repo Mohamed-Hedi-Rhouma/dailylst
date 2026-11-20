@@ -22,9 +22,11 @@ class DateEncoder(nn.Module):
     def forward(self, x: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
         """b t c h w, valid b t -> b t channels h w; padding dates stay 0 and cost nothing."""
         b, t, _, h, w = x.shape
-        out = x.new_zeros(b, t, self.channels, h, w)
-        if valid.any():
-            out[valid] = self.layers(x[valid])                      # only the real dates, all at once
+        if not valid.any():
+            return x.new_zeros(b, t, self.channels, h, w)
+        features = self.layers(x[valid])                            # only the real dates, all at once
+        out = features.new_zeros(b, t, self.channels, h, w)         # same dtype (half with mixed precision)
+        out[valid] = features
         return out
 
 
