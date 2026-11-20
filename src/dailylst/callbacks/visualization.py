@@ -7,13 +7,10 @@ from datetime import date as Date                # dates of the window
 from datetime import timedelta                   # dates of the window
 from pathlib import Path                         # figure files
 
-import matplotlib                                # figures
-matplotlib.use("Agg")                            # no display needed
-import matplotlib.pyplot as plt                  # plotting
+import matplotlib.pyplot as plt                  # plotting (no display needed: saved and sent to tensorboard)
 import numpy as np                               # arrays
 import pytorch_lightning as pl                   # callback base class
 import torch                                     # tensors
-from matplotlib.gridspec import GridSpec         # card layout
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from dailylst.data.datamodule import Batch, collate_samples
@@ -105,9 +102,10 @@ class LstFigures(pl.Callback):
                 if dates:                                              # the clearest of that season
                     best = max(dates, key=lambda d: clear[d])
                     candidates[season].setdefault(tile(name), []).append((index, best))
-        chosen, used = [], set()
+        chosen, used, tile_uses = [], set(), {}
         for season, by_tile in candidates.items():
-            picked, tiles = [], sorted(by_tile)
+            picked = []
+            tiles = sorted(by_tile, key=lambda t: (tile_uses.get(t, 0), t))   # least shown tiles first
             while len(picked) < self.nb_per_season and any(by_tile[t] for t in tiles):
                 for t in tiles:                                        # one per tile, in turn
                     while by_tile[t] and by_tile[t][0][0] in used:
@@ -116,6 +114,7 @@ class LstFigures(pl.Callback):
                         index, date = by_tile[t].pop(0)
                         picked.append((season, index, date))
                         used.add(index)
+                        tile_uses[t] = tile_uses.get(t, 0) + 1
             chosen += picked
             logger.info("figures %s: %d items %s", season, len(picked), [dataset.items[k][0][0] for _, k, _ in picked])
         return chosen
@@ -244,20 +243,20 @@ class LstFigures(pl.Callback):
     # -------------------------------------------------------------------------
     def card(self, r: dict, date: str, season: str, epoch: int) -> plt.Figure:
         """Maps of the show day, film strip of the window, time series of the middle cells."""
-        figure = plt.figure(figsize=(24, 15))
-        grid = GridSpec(3, 1, figure=figure, height_ratios=[1.15, 0.9, 1.0], hspace=0.28)
+        figure = plt.figure(figsize=(24, 15), layout="constrained")   # no overlaps, no empty bands
+        maps, strip, series = figure.subfigures(3, 1, height_ratios=[1.15, 0.8, 0.95], hspace=0.03)
         d = days(r["start"], date)
         hidden = r["landsat"].get(d, {}).get("hidden", False)
         figure.suptitle(f"epoch {epoch} | {season} | {r['info']} | show day {date} "
                         f"({'HIDDEN: a real test' if hidden else 'visible: was an input'})", fontsize=15)
-        self.maps_row(figure, grid[0], r, d)
-        self.strip_row(figure, grid[1], r, d)
-        self.series_row(figure, grid[2], r, d)
+        self.maps_row(maps, r, d)
+        self.strip_row(strip, r, d)
+        self.series_row(series, r, d)
         return figure
 
-    def maps_row(self, figure, cell, r: dict, d: int) -> None:
-        """S2 rgb, target, prediction, error, sigma and scatter of the show day."""
-        axes = cell.subgridspec(1, 6, wspace=0.25).subplots()
+    def maps_row(self, figure, r: dict, d: int) -> None:
+        """S2 rgb, target, prediction, error, sigma and scatter of the show day (figure = a subfigure)."""
+        axes = figure.subplots(1, 6)
         target = r["landsat"].get(d, {}).get("target", np.full_like(r["lst"][d], np.nan))
         vmin, vmax = limits(target)
 
@@ -265,12 +264,12 @@ class LstFigures(pl.Callback):
             day, _, bands = min(r["s2"], key=lambda s: (s[1] < 0.9, abs(s[0] - d)))
             rgb = np.stack([bands[BANDS.index(b)] for b in ("red", "green", "blue")], axis=-1)
             axes[0].imshow(stretch(rgb))
-            axes[0].set_title(f"sentinel-2, day {day - d:+d}")
+            axes[0].set_title(f"sentinel-2\n{day - d:+d} days from the show day")
         image = axes[1].imshow(target, cmap=LST_CMAP, vmin=vmin, vmax=vmax)
-        axes[1].set_title("landsat target (grey = cloud)")
+        axes[1].set_title("landsat target\n(grey = cloud or no data)")
         figure.colorbar(image, ax=axes[1], shrink=0.75, label="K")
         image = axes[2].imshow(r["lst"][d], cmap=LST_CMAP, vmin=vmin, vmax=vmax)
-        axes[2].set_title("prediction 30 m")
+        axes[2].set_title("prediction 30 m\n(same colour scale)")
         figure.colorbar(image, ax=axes[2], shrink=0.75, label="K")
 
         error = r["seen"][d] - target                                  # as landsat sees the prediction
@@ -281,11 +280,11 @@ class LstFigures(pl.Callback):
         axes[3].add_patch(plt.Rectangle((m - 0.5, m - 0.5), error.shape[1] - 2 * m, error.shape[0] - 2 * m,
                                         fill=False, edgecolor="k", linestyle="--", linewidth=0.8))
         if finite.size:
-            axes[3].set_title(f"error: bias {finite.mean():+.2f}  mae {np.abs(finite).mean():.2f}  "
-                              f"rmse {np.sqrt((finite ** 2).mean()):.2f} K", fontsize=10)
-        figure.colorbar(image, ax=axes[3], shrink=0.75, label="prediction - target (K)")
+            axes[3].set_title(f"error as landsat sees it (K)\nbias {finite.mean():+.2f}  mae {np.abs(finite).mean():.2f}  "
+                              f"rmse {np.sqrt((finite ** 2).mean()):.2f}")
+        figure.colorbar(image, ax=axes[3], shrink=0.75, label="K")
         image = axes[4].imshow(np.where(np.isfinite(target), r["sigma"][d], np.nan), cmap=SIGMA_CMAP)
-        axes[4].set_title("sigma")
+        axes[4].set_title("model sigma")
         figure.colorbar(image, ax=axes[4], shrink=0.75, label="K")
 
         pred = r["seen"][d][m:-m, m:-m]
@@ -299,17 +298,17 @@ class LstFigures(pl.Callback):
             axes[5].plot([lo, hi], [lo, hi], "r-", linewidth=1)
             axes[5].set_xlim(lo, hi)
             axes[5].set_ylim(lo, hi)
-            axes[5].set_title(f"r = {np.corrcoef(x, y)[0, 1]:.2f}  (n = {x.size})")
+            axes[5].set_title(f"prediction vs landsat\nr = {np.corrcoef(x, y)[0, 1]:.2f}  (n = {x.size})")
         axes[5].set_xlabel("landsat (K)")
         axes[5].set_ylabel("prediction (K)")
         axes[5].set_aspect("equal")
         for ax in axes[:5]:
             no_ticks(ax)
 
-    def strip_row(self, figure, cell, r: dict, d: int) -> None:
+    def strip_row(self, figure, r: dict, d: int) -> None:
         """Prediction on days spread over the window, one colour scale, what was observed each day."""
         picks = sorted(set(np.linspace(0, r["window"] - 1, self.strip_days).round().astype(int).tolist()) | {d})
-        axes = cell.subgridspec(1, len(picks), wspace=0.05).subplots()
+        axes = figure.subplots(1, len(picks))
         vmin, vmax = limits(*(r["lst"][p] for p in picks))
         for ax, p in zip(np.atleast_1d(axes), picks):
             image = ax.imshow(r["lst"][p], cmap=LST_CMAP, vmin=vmin, vmax=vmax)
@@ -324,23 +323,26 @@ class LstFigures(pl.Callback):
             ax.set_title(f"{date} | {' '.join(seen) or 'no data'}", fontsize=10,
                          color="red" if p == d else "black")
             no_ticks(ax)
-        figure.colorbar(image, ax=np.atleast_1d(axes).tolist(), shrink=0.8, label="predicted lst (K)", pad=0.01)
+        figure.colorbar(image, ax=np.atleast_1d(axes).tolist(), shrink=0.8, label="predicted lst (K)")
 
-    def series_row(self, figure, cell, r: dict, d: int) -> None:
+    def series_row(self, figure, r: dict, d: int) -> None:
         """Middle cells over the window: prediction and sigma every day, landsat, shifted modis, water input."""
-        ax = figure.add_subplot(cell)
+        ax = figure.subplots()
+        shown = []                                                     # values that set the y range
         middle = r["middle"]
         x = np.arange(r["window"])
         mean = r["lst"][:, middle[0], middle[1]].mean(axis=(1, 2))
         sigma = r["sigma"][:, middle[0], middle[1]].mean(axis=(1, 2))
         ax.fill_between(x, mean - sigma, mean + sigma, color="tab:blue", alpha=0.2, label="prediction ± sigma")
         ax.plot(x, mean, color="tab:blue", linewidth=1.5, label="prediction (every day)")
+        shown.extend(mean.tolist())
 
         for day, value in r["landsat"].items():
             clear = value["clear"][middle[0], middle[1]]
             if clear.mean() >= 0.3:
-                ax.plot(day, np.nanmean(value["target"][middle[0], middle[1]]), "o", markersize=7,
-                        color="red" if value["hidden"] else "black")
+                level = float(np.nanmean(value["target"][middle[0], middle[1]]))
+                ax.plot(day, level, "o", markersize=7, color="red" if value["hidden"] else "black")
+                shown.append(level)
         ax.plot([], [], "o", color="black", label="landsat visible (clear part)")
         ax.plot([], [], "o", color="red", label="landsat hidden (clear part)")
         if r["modis"]:
@@ -349,10 +351,14 @@ class LstFigures(pl.Callback):
             offset = mean[m_days].mean() - m_values.mean()            # same level: only the ups and downs count
             ax.plot(m_days, m_values + offset, "s", markersize=4, color="tab:orange", alpha=0.8,
                     label=f"modis, shifted {offset:+.1f} K")
+            shown.extend((m_values + offset).tolist())
         ax.axvline(d, color="red", linestyle="--", linewidth=1)
         ax.set_xlim(0, r["window"] - 1)
         ticks = np.arange(0, r["window"], 15)
         ax.set_xticks(ticks, [(Date.fromisoformat(r["start"]) + timedelta(days=int(t))).strftime("%d %b") for t in ticks])
+        low, high = np.nanmin(shown), np.nanmax(shown)                  # the data, not a wide sigma band
+        pad = max(2.0, 0.15 * (high - low))
+        ax.set_ylim(low - pad, high + pad)
         ax.set_ylabel("lst of the middle cells (K)")
         ax.grid(alpha=0.3)
         if r["water"] is not None:
@@ -360,7 +366,7 @@ class LstFigures(pl.Callback):
             rain.bar(x, r["water"][:r["window"]], color="tab:cyan", alpha=0.4, width=0.8)
             rain.set_ylabel("water input (mm/day)", color="tab:cyan")
             rain.set_ylim(0, max(10.0, float(np.nanmax(r["water"])) * 3))
-        ax.legend(loc="upper left", fontsize=9, ncol=3)
+        ax.legend(loc="upper left", fontsize=9, ncol=5, framealpha=0.9)
 
     # -------------------------------------------------------------------------
     # Overview
