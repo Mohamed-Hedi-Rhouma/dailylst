@@ -1,0 +1,11 @@
+# @package _global_
+location:
+  name: 'kaggle'
+  root_dir: '/kaggle/working/dailylst'                       # the repo, cloned in the notebook
+  landsat_root: '/kaggle/input/landsat-lst/landsat_lst'      # kaggle dataset, read only, set your dataset name
+  modis_root: '/kaggle/input/modis-lst/modis_lst'            # kaggle dataset, read only, set your dataset name
+  sentinel_root: '/kaggle/input/sentinel2-gan/sentinel2_gan' # kaggle dataset, read only, set your dataset name
+  era5_root: '/kaggle/input/era5-lst/era5'                   # kaggle dataset, read only, set your dataset name
+  stats_dir: ${location.root_dir}/stats                      # comes with the repo
+  output_dir: '/kaggle/working/results'                      # runs, logs and checkpoints
+  cache_dir: ${location.output_dir}/cache                    # must be writable

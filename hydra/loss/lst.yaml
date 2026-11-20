@@ -1,0 +1,24 @@
+# @package _global_
+loss:
+  name: 'lst'
+  model:
+    _target_: dailylst.model.loss.LstLoss
+    stats_dir: ${location.stats_dir}      # landsat and modis loc, scale
+
+    # weights of the terms, landsat is 1
+    modis_weight: 1.0
+    triplet_weight: 1.0                   # tamrf
+    cca_weight: 0.1                       # tamrf scale for the thermal band
+
+    margin_px: 9                          # border left out, 270 m (tamrf: 27 px at 10 m)
+    landsat_resolution_m: 90.0            # landsat thermal seen at 90 m with mtf 0.2 (tamrf)
+    landsat_mtf: 0.2
+    landsat_min_clear: 0.5                # tamrf
+    modis_sigma_m: 1000.0                 # measured by analyze_modis_footprint.py
+    triplet_days: 20.0                    # tamrf
+    triplet_margin: 0.1                   # tamrf
+    cca_max_masked: 0.25                  # tamrf
+    cca_min_samples: 10                   # tamrf
+    cca_max_loss: 10.0                    # tamrf safeguard
+    cca_lpips: true                       # tamrf
+    beta: 0.1                             # smooth l1 (tamrf)

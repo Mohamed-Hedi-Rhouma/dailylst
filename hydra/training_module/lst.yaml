@@ -1,0 +1,19 @@
+# @package _global_
+training_module:
+  name: 'lst'
+
+  optimization:
+    _target_: dailylst.model.training_module.OptimizationParameters
+    lr: 1.0e-4                            # tamrf
+    min_lr: 2.0e-5                        # tamrf
+    weight_decay: 0.0                     # tamrf
+    warmup_epochs: 1.0                    # tamrf
+    restart_epochs: 20.0                  # tamrf: 40360 steps = 20 epochs
+    restart_mult: 2                       # tamrf
+
+  module:
+    _target_: dailylst.model.training_module.LstModule
+    network: ${network.model}
+    loss: ${loss.model}
+    optimization: ${training_module.optimization}
+    print_every: 200                      # steps between two training summaries (log line + tensorboard)

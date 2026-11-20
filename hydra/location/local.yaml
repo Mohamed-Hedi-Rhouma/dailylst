@@ -1,0 +1,11 @@
+# @package _global_
+location:
+  name: 'local'
+  root_dir: '/home/mrhouma/Documents/dailylst/dailylst'      # the repo
+  landsat_root: '/media/mrhouma/2C1E-61AC/landsat_lst'       # download_landsat_lst.py output
+  modis_root: '/media/mrhouma/2C1E-61AC/modis_lst'           # download_modis_lst.py output
+  sentinel_root: '/media/mrhouma/2C1E-61AC/sentinel2_gan'    # cyclegan sentinel download
+  era5_root: '/media/mrhouma/2C1E-61AC/era5'                 # download_weather.py output
+  stats_dir: ${location.root_dir}/stats                      # stats.py output + sentinel.json, in the repo
+  output_dir: ${location.root_dir}/results                   # runs, logs and checkpoints
+  cache_dir: ${location.root_dir}/cache                      # cell fractions, already built by check_dataset.py

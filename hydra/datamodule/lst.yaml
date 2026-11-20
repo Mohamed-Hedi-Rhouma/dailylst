@@ -1,0 +1,33 @@
+# @package _global_
+datamodule:
+  name: 'lst'
+  loader:
+    _target_: dailylst.data.datamodule.LstDataModule
+    landsat_root: ${location.landsat_root}
+    modis_root: ${location.modis_root}
+    sentinel_root: ${location.sentinel_root}
+    era5_root: ${location.era5_root}
+    stats_dir: ${location.stats_dir}
+    cache_dir: ${location.cache_dir}
+
+    # test aois of these tiles are val, the other test aois are test (as cyclegan)
+    val_tiles: [22NBL, 30NUM, 30SWG, 31TCJ, 31UES, 32TPT, 32UMU, 33VWJ, 34TFQ]
+
+    # patch and window
+    ring_cells: ${ring_cells}
+    window_days: ${window_days}
+    history_days: ${history_days}
+    max_sentinel: 32                      # random subset above (all dates p99 70 per 121 days)
+    max_landsat: 32                       # all dates p99 34 per 121 days
+    max_modis: 121                        # every day of the window
+    min_dates: [2, 2, 2]                  # sentinel, landsat, modis dates a window needs
+    min_clear_for_count: 0.0              # a date counts towards min_dates above this clear fraction
+
+    # masking (tamrf, scaled to the window)
+    random_rate: [0.2, 0.7]               # random strategy: share of dates hidden
+    gap_fraction: [0.0822, 0.2466]        # gaps strategy: 30 to 90 days of 365
+    cut_fraction: [0.1781, 0.8219]        # forecast, backcast: day 65 to 300 of 365
+    seed: 42                              # val and test windows and masking
+
+    batch_size: 1
+    num_workers: 4

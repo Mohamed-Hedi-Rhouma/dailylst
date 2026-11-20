@@ -1,0 +1,17 @@
+# @package _global_
+network:
+  name: 'lst'
+  model:
+    _target_: dailylst.model.network.LstNetwork
+    stats_dir: ${location.stats_dir}      # landsat scale and weather columns
+    history_days: ${history_days}
+    channels: 64                          # features per pixel and date (tamrf)
+    sensor_code_size: 8                   # tamrf
+    encoder_blocks: 3                     # sentinel and landsat encoders, 15 x 15 px seen
+    modis_blocks: 2                       # 1 x 1 blocks per modis cell
+    modis_upsampling: 'bicubic'           # modis features to 30 m (tamrf), or bilinear / nearest
+    heads: 4                              # tamrf
+    layers: 3                             # tamrf
+    feedforward: 256                      # tamrf
+    head_blocks: 2
+    chunk: 8192                           # pixels per attention call

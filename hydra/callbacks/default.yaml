@@ -1,0 +1,24 @@
+# @package _global_
+callbacks:
+  model_checkpoint:                       # best.ckpt and last.ckpt, both overwritten
+    _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    dirpath: ${log_dir}/checkpoints
+    filename: 'best'                      # fixed name, replaced by each new best
+    monitor: 'validation/hidden_landsat_rmse_k'   # error in K on the landsat days the model did not see
+    mode: 'min'
+    save_top_k: 1                         # only the best
+    save_last: true                       # last.ckpt, used to resume
+    enable_version_counter: false         # overwrite instead of best-v1.ckpt
+  lr_monitor:                             # learning rate in tensorboard
+    _target_: pytorch_lightning.callbacks.LearningRateMonitor
+    logging_interval: 'step'
+  figures:                                # 3 val items per season: cards and overview
+    _target_: dailylst.callbacks.visualization.LstFigures
+    output_dir: ${log_dir}/figures
+    nb_per_season: 3
+    every_n_validations: 1
+    min_clear: 0.7                        # show day: landsat clear share on the patch
+    strip_days: 8                         # film strip days
+    error_max: 3.0                        # error map scale, K
+    query_chunk: 32                       # days predicted per network call
+    dpi: 110
