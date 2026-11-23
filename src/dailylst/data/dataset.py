@@ -20,6 +20,7 @@ from dailylst.data.sensors import (BANDS, LANDSAT_LST, LANDSAT_PER_MODIS, METADA
                                    SENTINEL_PER_LANDSAT)
 
 logger = logging.getLogger(__name__)
+logging.getLogger("rasterio._env").setLevel(logging.ERROR)   # earth engine multi-band tiff tag warnings
 
 SPLITS = ("train", "val", "test")                # val and test both come from the test aois
 SPLIT_FOLDER = {"train": "train", "val": "test", "test": "test"}
@@ -190,6 +191,18 @@ def in_gap(k: int, gap: int, length: int) -> bool:
     return any(g < k < g + gap for g in range(gap, length, 2 * gap))
 
 
+def share_dates(counts: dict[str, int], max_dates: int, min_dates: dict[str, int]) -> dict[str, int]:
+    """Dates kept per sensor: all if the total fits, else max_dates split in proportion (tamrf), min_dates kept."""
+    total = sum(counts.values())
+    if total <= max_dates:
+        return dict(counts)
+    keep = {s: max(int(max_dates * n / total), min(n, min_dates[s])) for s, n in counts.items()}
+    while sum(keep.values()) > max_dates:                               # the floor of min_dates may go over: trim the largest
+        largest = max(keep, key=keep.get)
+        keep[largest] -= 1
+    return keep
+
+
 def hide_dates(rng: np.random.Generator, strategy: str, dates: dict[str, list[str]], start: str, length: int,
                random_rate: tuple[float, float], gap_fraction: tuple[float, float],
                cut_fraction: tuple[float, float]) -> dict[str, set[str]]:
@@ -234,9 +247,7 @@ class LstDataset(torch.utils.data.Dataset):
         ring_cells: int = 1,                     # modis cells around the 2 x 2 centre: 1 = 4 x 4 area, 2 = 6 x 6
         window_days: int = 121,                  # W, days of a window; clean target gap p90 24 days (train)
         history_days: int = 7,                   # H, daily weather before the window
-        max_sentinel: int = 32,                  # T_s, random subset above; all dates p99 70 per 121 days (train)
-        max_landsat: int = 32,                   # T_l, all dates p99 34 per 121 days (train)
-        max_modis: int = 121,                    # T_m, every day of the window
+        max_dates: int = 112,                    # all sensors together, split in proportion above (tamrf max_nb_dates)
         min_dates: tuple[int, int, int] = (2, 2, 2),   # sentinel, landsat, modis dates a window needs
         min_clear_for_count: float = 0.0,        # a date counts towards min_dates above this clear fraction
         random_rate: tuple[float, float] = (0.2, 0.7),            # random strategy: share hidden (tamrf)
@@ -252,8 +263,8 @@ class LstDataset(torch.utils.data.Dataset):
         self.area_cells = CENTER_CELLS + 2 * ring_cells                 # A, 4 by default
         self.area_px = self.area_cells * LANDSAT_PER_MODIS              # S, 132 by default
         self.length, self.history = window_days, history_days
-        self.max_dates = {"sentinel": max_sentinel, "landsat": max_landsat, "modis": max_modis}
-        self.nb_queries = min(window_days, max_sentinel + max_landsat + max_modis)   # Q, every day with data
+        self.max_dates = max_dates                                      # also the padded length of each list
+        self.nb_queries = min(window_days, max_dates)                   # Q, every day with data
         self.min_dates = dict(zip(SENSOR_NAMES, min_dates))
         self.min_clear_for_count = min_clear_for_count
         self.masking = (random_rate, gap_fraction, cut_fraction)
@@ -284,8 +295,8 @@ class LstDataset(torch.utils.data.Dataset):
                         self.starts[(name, i, j)] = np.flatnonzero(valid[:, i, j])
         self.items = self._list_items()
         logger.info("%s | %d aois | %d patches of %d x %d modis cells (%d px at 30 m) | %d items | window %d days | "
-                    "max s2 %d, landsat %d, modis %d", split, len(self.aois), len(self.starts), self.area_cells,
-                    self.area_cells, self.area_px, len(self.items), self.length, max_sentinel, max_landsat, max_modis)
+                    "max %d dates", split, len(self.aois), len(self.starts), self.area_cells,
+                    self.area_cells, self.area_px, len(self.items), self.length, max_dates)
 
     # -------------------------------------------------------------------------
     # Load one aoi
@@ -504,14 +515,13 @@ class LstDataset(torch.utils.data.Dataset):
             rng = np.random.default_rng(self.seed + index)
         start = shift(aoi.start, start_day)
 
-        # Every usable date of the window, a random subset above the maximum
-        dates = {}
-        for sensor in SENSOR_NAMES:
-            inside = sorted(d for d in aoi.clear[sensor]
-                            if 0 <= days(start, d) < self.length and self._usable(aoi, sensor, d, i, j))
-            if len(inside) > self.max_dates[sensor]:
-                inside = sorted(str(d) for d in rng.choice(inside, self.max_dates[sensor], replace=False))
-            dates[sensor] = inside
+        # Every usable date of the window, a random subset of each sensor above the maximum (tamrf)
+        dates = {sensor: sorted(d for d in aoi.clear[sensor]
+                                if 0 <= days(start, d) < self.length and self._usable(aoi, sensor, d, i, j))
+                 for sensor in SENSOR_NAMES}
+        keep = share_dates({s: len(ds) for s, ds in dates.items()}, self.max_dates, self.min_dates)
+        dates = {s: sorted(str(d) for d in rng.choice(ds, keep[s], replace=False)) if keep[s] < len(ds) else ds
+                 for s, ds in dates.items()}
 
         # Masking
         strategy = str(rng.choice(STRATEGIES))
@@ -544,7 +554,8 @@ class LstDataset(torch.utils.data.Dataset):
         target = [reads.get(q, no_landsat) for q in queries]
         target_modis = [modis_kelvin.get(q, no_cells) for q in queries]
 
-        T_s, T_l, T_m, Q = self.max_dates["sentinel"], self.max_dates["landsat"], self.max_dates["modis"], self.nb_queries
+        T_s = T_l = T_m = self.max_dates                                    # one sensor may hold every date
+        Q = self.nb_queries
 
         def day(ds: list[str]) -> list[np.int64]:
             """Day of every date in the window."""

@@ -61,9 +61,7 @@ class LstDataModule(pl.LightningDataModule):
         ring_cells: int = 1,                     # modis cells around the 2 x 2 centre: 1 = 4 x 4 area, 2 = 6 x 6
         window_days: int = 121,                  # W, days of a window
         history_days: int = 7,                   # H, daily weather before the window
-        max_sentinel: int = 32,                  # T_s
-        max_landsat: int = 32,                   # T_l
-        max_modis: int = 121,                    # T_m
+        max_dates: int = 112,                    # all sensors together, split in proportion above (tamrf)
         min_dates: tuple[int, int, int] = (2, 2, 2),   # sentinel, landsat, modis dates a window needs
         min_clear_for_count: float = 0.0,        # a date counts towards min_dates above this clear fraction
         random_rate: tuple[float, float] = (0.2, 0.7),            # random strategy: share hidden (tamrf)
@@ -88,9 +86,7 @@ class LstDataModule(pl.LightningDataModule):
             ring_cells=ring_cells,
             window_days=window_days,
             history_days=history_days,
-            max_sentinel=max_sentinel,
-            max_landsat=max_landsat,
-            max_modis=max_modis,
+            max_dates=max_dates,
             min_dates=tuple(min_dates),
             min_clear_for_count=min_clear_for_count,
             random_rate=tuple(random_rate),

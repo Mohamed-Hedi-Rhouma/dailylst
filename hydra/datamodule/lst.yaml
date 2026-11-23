@@ -17,9 +17,7 @@ datamodule:
     ring_cells: ${ring_cells}
     window_days: ${window_days}
     history_days: ${history_days}
-    max_sentinel: 32                      # random subset above (all dates p99 70 per 121 days)
-    max_landsat: 32                       # all dates p99 34 per 121 days
-    max_modis: 121                        # every day of the window
+    max_dates: 112                        # all sensors together, split in proportion above (tamrf max_nb_dates)
     min_dates: [2, 2, 2]                  # sentinel, landsat, modis dates a window needs
     min_clear_for_count: 0.0              # a date counts towards min_dates above this clear fraction
 

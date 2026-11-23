@@ -30,6 +30,7 @@ def instantiate_group(group_cfg) -> list:
 def main(cfg: DictConfig):
     """Build the module, the data, the callbacks, the loggers and the trainer, then fit (and test if asked)."""
     logging.getLogger("dailylst").setLevel(cfg.loglevel)
+    logging.getLogger("rasterio._env").setLevel(logging.ERROR)  # earth engine multi-band tiff tag warnings
     pl.seed_everything(cfg.seed, workers=True)                  # same windows, masking and weights for one seed
     if cfg.get("mat_mul_precision") is not None:                # faster matmuls on recent gpus
         torch.set_float32_matmul_precision(cfg.mat_mul_precision)
