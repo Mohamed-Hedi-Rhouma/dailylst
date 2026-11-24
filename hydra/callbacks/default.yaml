@@ -9,6 +9,9 @@ callbacks:
     save_top_k: 1                         # only the best
     save_last: true                       # last.ckpt, used to resume
     enable_version_counter: false         # overwrite instead of best-v1.ckpt
+  session_timer:                          # stop and save before the kaggle session limit
+    _target_: dailylst.callbacks.session_timer.SessionTimer
+    hours: null                           # null = no limit (local), kaggle: 11
   lr_monitor:                             # learning rate in tensorboard
     _target_: pytorch_lightning.callbacks.LearningRateMonitor
     logging_interval: 'step'
